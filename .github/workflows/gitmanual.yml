@@ -60,14 +60,46 @@ jobs:
             cat env_output.env >> "$GITHUB_ENV"
           fi
 
-      - name: Zip (and split if needed)
+      - name: Zip into independent archives (max ~1.9GB each)
         if: env.DOWNLOADED_COUNT != '' && env.DOWNLOADED_COUNT != '0'
         run: |
           BASE="episodes_$(date +%Y%m%d_%H%M%S)"
-          # -0 = בלי דחיסה (קבצי אודיו כבר דחוסים), -s = פיצול אוטומטי לחלקים שעוברים את 1.9GB
-          (cd downloads && zip -0 -r -s 1900m "../${BASE}.zip" .)
+          MAX=1900000000   # מתחת למגבלת 2GB של GitHub
+
+          cd downloads
+          part=1
+          size=0
+          files=()
+
+          flush() {
+            if [ ${#files[@]} -gt 0 ]; then
+              # -0 = בלי דחיסה (קבצי אודיו כבר דחוסים)
+              zip -0 -q "../${BASE}_part${part}.zip" "${files[@]}"
+              part=$((part + 1))
+              files=()
+              size=0
+            fi
+          }
+
+          for f in *; do
+            [ -f "$f" ] || continue
+            fsize=$(stat -c%s "$f")
+            if [ $((size + fsize)) -gt "$MAX" ] && [ ${#files[@]} -gt 0 ]; then
+              flush
+            fi
+            files+=("$f")
+            size=$((size + fsize))
+          done
+          flush
+
+          cd ..
+          # אם יצא ZIP אחד בלבד - בלי הסיומת _part1
+          if [ "$part" -eq 2 ]; then
+            mv "${BASE}_part1.zip" "${BASE}.zip"
+          fi
+
           echo "ZIP_BASE=$BASE" >> "$GITHUB_ENV"
-          ls -lh "${BASE}".z*
+          ls -lh "${BASE}"*.zip
 
       - name: Upload to GitHub Release
         if: env.DOWNLOADED_COUNT != '' && env.DOWNLOADED_COUNT != '0'
@@ -83,8 +115,8 @@ jobs:
             gh release create "$PODCAST_TAG" --title "$PODCAST_TITLE" --notes "$NOTES"
           fi
 
-          # מעלה את ה-ZIP (ואת כל החלקים שלו אם פוצל: .z01, .z02, ... .zip)
-          for f in "${ZIP_BASE}".z*; do
+          # מעלה כל ZIP עצמאי (episodes_..._part1.zip, _part2.zip וכו')
+          for f in "${ZIP_BASE}"*.zip; do
             echo "מעלה: $f"
             gh release upload "$PODCAST_TAG" "$f" --clobber
           done
