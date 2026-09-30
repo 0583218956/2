@@ -1,0 +1,102 @@
+name: GitManual
+
+on:
+  workflow_dispatch:
+    inputs:
+      rss_url:
+        description: "הכנס כתובת RSS של הפודקאסט"
+        required: true
+        type: string
+      episodes_per_run:
+        description: "כמה פרקים להוריד (1 = הפרק החדש ביותר)"
+        required: true
+        type: choice
+        default: "5"
+        options:
+          - "1"
+          - "5"
+          - "10"
+          - "15"
+          - "20"
+          - "30"
+          - "40"
+          - "100"
+      episode_number:
+        description: "מספר פרק ספציפי (אופציונלי). אם ריק או לא קיים - יורד האחרון"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gitmanual
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install feedparser requests
+
+      - name: Run script
+        env:
+          RSS_URL: ${{ inputs.rss_url }}
+          EPISODES_PER_RUN: ${{ inputs.episodes_per_run }}
+          EPISODE_NUMBER: ${{ inputs.episode_number }}
+        run: python gitmanual.py
+
+      - name: Load environment variables from Python
+        run: |
+          if [ -f env_output.env ]; then
+            cat env_output.env >> "$GITHUB_ENV"
+          fi
+
+      - name: Zip (and split if needed)
+        if: env.DOWNLOADED_COUNT != '' && env.DOWNLOADED_COUNT != '0'
+        run: |
+          BASE="episodes_$(date +%Y%m%d_%H%M%S)"
+          # -0 = בלי דחיסה (קבצי אודיו כבר דחוסים), -s = פיצול אוטומטי לחלקים שעוברים את 1.9GB
+          (cd downloads && zip -0 -r -s 1900m "../${BASE}.zip" .)
+          echo "ZIP_BASE=$BASE" >> "$GITHUB_ENV"
+          ls -lh "${BASE}".z*
+
+      - name: Upload to GitHub Release
+        if: env.DOWNLOADED_COUNT != '' && env.DOWNLOADED_COUNT != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RSS_URL: ${{ inputs.rss_url }}
+        run: |
+          NOTES="ארכיון פרקים של: ${PODCAST_TITLE}"$'\n'"RSS: ${RSS_URL}"
+
+          if gh release view "$PODCAST_TAG" &>/dev/null; then
+            gh release edit "$PODCAST_TAG" --title "$PODCAST_TITLE" --notes "$NOTES"
+          else
+            gh release create "$PODCAST_TAG" --title "$PODCAST_TITLE" --notes "$NOTES"
+          fi
+
+          # מעלה את ה-ZIP (ואת כל החלקים שלו אם פוצל: .z01, .z02, ... .zip)
+          for f in "${ZIP_BASE}".z*; do
+            echo "מעלה: $f"
+            gh release upload "$PODCAST_TAG" "$f" --clobber
+          done
+
+      - name: Save state to Git
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add gitmanual_seen.json
+          git diff --cached --quiet || (
+            git commit -m "Update podcast state" &&
+            for i in {1..3}; do
+              git pull --rebase && git push && break || sleep 5
+            done
+          )
