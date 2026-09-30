@@ -199,7 +199,7 @@ def main():
 
     else:
         print(f"כמות פרקים להורדה בהרצה זו: {per_run}")
-        for idx in range(total - 1, -1, -1):  # מהישן לחדש
+        for idx in range(total):  # מהחדש לישן (הפיד ממוין מהחדש לישן)
             if len(targets) >= per_run:
                 break
             entry = entries[idx]
