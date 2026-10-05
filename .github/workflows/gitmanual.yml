@@ -22,10 +22,15 @@ on:
           - "40"
           - "100"
       episode_number:
-        description: "מספר פרק ספציפי (אופציונלי). אם ריק או לא קיים - יורד האחרון"
+        description: "מספר פרק ספציפי, טווח (למשל 25-30), או מילת חיפוש"
         required: false
         type: string
         default: ""
+      list_only:
+        description: "רק ליצור רשימת פרקים (TXT) ולא להוריד פרקים"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -52,6 +57,7 @@ jobs:
           RSS_URL: ${{ inputs.rss_url }}
           EPISODES_PER_RUN: ${{ inputs.episodes_per_run }}
           EPISODE_NUMBER: ${{ inputs.episode_number }}
+          LIST_ONLY: ${{ inputs.list_only }}
         run: python gitmanual.py
 
       - name: Load environment variables from Python
@@ -61,7 +67,7 @@ jobs:
           fi
 
       - name: Zip into independent archives (max ~1.9GB each)
-        if: env.DOWNLOADED_COUNT != '' && env.DOWNLOADED_COUNT != '0'
+        if: env.DOWNLOADED_COUNT != '' && env.DOWNLOADED_COUNT != '0' && inputs.list_only != true
         run: |
           BASE="episodes_$(date +%Y%m%d_%H%M%S)"
           MAX=1900000000   # מתחת למגבלת 2GB של GitHub
@@ -115,11 +121,23 @@ jobs:
             gh release create "$PODCAST_TAG" --title "$PODCAST_TITLE" --notes "$NOTES"
           fi
 
-          # מעלה כל ZIP עצמאי (episodes_..._part1.zip, _part2.zip וכו')
-          for f in "${ZIP_BASE}"*.zip; do
-            echo "מעלה: $f"
-            gh release upload "$PODCAST_TAG" "$f" --clobber
-          done
+          # אם זה במצב list_only מעלה את קובץ ה-TXT, אחרת מעלה את קבצי ה-ZIP
+          if [ "${{ inputs.list_only }}" = "true" ]; then
+            echo "מעלה את קובץ רשימת הפרקים..."
+            for f in downloads/*.txt; do
+              if [ -f "$f" ]; then
+                echo "מעלה: $f"
+                gh release upload "$PODCAST_TAG" "$f" --clobber
+              fi
+            done
+          else
+            for f in "${ZIP_BASE}"*.zip; do
+              if [ -f "$f" ]; then
+                echo "מעלה: $f"
+                gh release upload "$PODCAST_TAG" "$f" --clobber
+              fi
+            done
+          fi
 
       - name: Save state to Git
         run: |
