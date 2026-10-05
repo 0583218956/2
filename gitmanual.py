@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 import time
-from time import strftime
+from time import mktime, strftime
 from urllib.parse import urlparse
 
 import feedparser
@@ -324,10 +324,7 @@ def main():
             if eid not in seen:
                 unseen.append((e, enclosures[0].get("href")))
 
-        # לוקח לפי per_run מהחדשים ביותר (כלומר מהסוף של הרשימה מהישן-לחדש)
-        # או אפשר לפי הסדר שמוגדר. ניקח את ה-per_run האחרונים ברשימת oldest_first שטרם הורדו:
         selected_unseen = unseen[-per_run:] if per_run < len(unseen) else unseen
-        # נמצא את האינדקס המקורי שלהם ב-entries
         for e_target, url_target in selected_unseen:
             idx = next((i for i, item in enumerate(entries) if entry_id(item) == entry_id(e_target)), None)
             if idx is not None:
