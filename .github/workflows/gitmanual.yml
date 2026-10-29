@@ -121,15 +121,13 @@ jobs:
             gh release create "$PODCAST_TAG" --title "$PODCAST_TITLE" --notes "$NOTES"
           fi
 
-          # אם זה במצב list_only מעלה את קובץ ה-TXT, אחרת מעלה את קבצי ה-ZIP
+          # אם במצב list_only: מכווץ את קובץ הטקסט ל-ZIP ומעלה
           if [ "${{ inputs.list_only }}" = "true" ]; then
-            echo "מעלה את קובץ רשימת הפרקים..."
-            for f in downloads/*.txt; do
-              if [ -f "$f" ]; then
-                echo "מעלה: $f"
-                gh release upload "$PODCAST_TAG" "$f" --clobber
-              fi
-            done
+            echo "דוחס ומעלה את רשימת הפרקים כקובץ ZIP..."
+            cd downloads
+            zip -9 -q "../episodes_list.zip" *.txt
+            cd ..
+            gh release upload "$PODCAST_TAG" "episodes_list.zip" --clobber
           else
             for f in "${ZIP_BASE}"*.zip; do
               if [ -f "$f" ]; then
